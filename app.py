@@ -1,242 +1,153 @@
-import numpy as np
+import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
 
 # ==========================================
-# CONFIGURACIÓN GENERAL DE LA APLICACIÓN
+# 1. CONFIGURACIÓN DE LA PÁGINA
 # ==========================================
-st.set_page_config(
-    page_title="Dashboard Predictivo Lead Time | Proyecto de Grado",
-    page_icon="🏭",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+st.set_page_config(page_title="Analytics | Lead Time vs Paradas", layout="wide", page_icon="🏭")
 
-# Estilos CSS personalizados
-st.markdown(
-    """
+st.markdown("""
     <style>
-    .main-header { font-size: 26px; font-weight: bold; color: #1E3A8A; margin-bottom: 5px; }
-    .sub-header { font-size: 15px; color: #4B5563; margin-bottom: 20px; }
-    .metric-card { background-color: #F8FAFC; border-radius: 8px; padding: 15px; border-left: 5px solid #2563EB; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .status-green { background-color: #D1FAE5; color: #065F46; padding: 12px; border-radius: 6px; font-weight: bold; }
-    .status-yellow { background-color: #FEF3C7; color: #92400E; padding: 12px; border-radius: 6px; font-weight: bold; }
-    .status-red { background-color: #FEE2E2; color: #991B1B; padding: 12px; border-radius: 6px; font-weight: bold; }
+    .titulo { font-size: 28px; font-weight: bold; color: #0F172A; }
+    .subtitulo { font-size: 16px; color: #475569; margin-bottom: 20px;}
+    .alerta-roja { background-color: #FEE2E2; color: #991B1B; padding: 15px; border-radius: 8px; font-weight: bold; }
+    .alerta-verde { background-color: #D1FAE5; color: #065F46; padding: 15px; border-radius: 8px; font-weight: bold; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="titulo">Dashboard Integrado: Lead Time vs Paradas de Máquina</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitulo">Cruce de bases de datos por Primary Key (Órden) y Modelo Predictivo</div>', unsafe_allow_html=True)
 
 # ==========================================
-# PARÁMETROS MATEMÁTICOS DEL MODELO ACTUALIZADO
+# 2. CARGA DE ARCHIVOS EXCEL (TUS DATOS REALES)
 # ==========================================
-# Ecuación de Regresión Lineal Múltiple Integrada
-BETA_0 = 5.2140
-BETA_REPROCESO = 16.4520
-BETA_MIN_PARADA = 0.0095
-BETA_MIN_ACABADOS = 0.0125  # Nuevo: Impacto específico de paradas en etapa de acabados
-BETA_METROS = -0.0002
+st.sidebar.header("📁 1. Carga de Bases de Datos")
+st.sidebar.markdown("Sube tus archivos Excel para realizar el cruce:")
 
-BETAS_MAQUINA = {
-    "Máquina 1 (Base)": 0.0, 
-    "Máquina 2": -0.8520,
-    "Máquina 3": 2.1450,
-    "Máquina 12": 0.3210,
-    "Máquina 78": 5.8420,
-    "Máquina 79": 6.9150,
-}
+archivo_lead = st.sidebar.file_uploader("Sube la base de Lead Time (Excel)", type=['xlsx', 'csv'])
+archivo_paradas = st.sidebar.file_uploader("Sube la base de Paradas (Excel)", type=['xlsx', 'csv'])
 
-# Métricas del Modelo
-MAE = 6.85
-RMSE = 11.20
-R2 = 0.315
-ACCURACY = 82.40
-UMBRAL_TARGET = 17.0
-
-# ==========================================
-# MENÚ NAVEGACIÓN
-# ==========================================
-st.sidebar.image("https://img.icons8.com/color/96/analytics.png", width=70)
-st.sidebar.title("Especialización en Analítica")
-st.sidebar.caption("Proyecto de Grado | Fase 3: Modelo Integrado")
-
-menu = st.sidebar.radio(
-    "Módulos del Sistema:",
-    [
-        "📊 Panel Ejecutivo / KPIs",
-        "🧮 Simulador Predictivo en Tiempo Real",
-        "🔍 Cruce Bases: Cuellos de Botella y Referencias",
-        "📈 Evaluación y Métricas del Modelo",
-    ],
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Cruce de Bases de Datos**\n\n"
-    "• **PK:** Número de Orden\n"
-    "• **Bases:** Lead Time ⨝ Paradas\n"
-    "• **Muestra:** 14,933 órdenes\n"
-    "• **Meta:** Lead Time ≤ 17 días"
-)
-
-# ==========================================
-# MÓDULO 1: PANEL EJECUTIVO / KPIS
-# ==========================================
-if menu == "📊 Panel Ejecutivo / KPIs":
-    st.markdown("<div class='main-header'>Panel Ejecutivo: Control Integrado de Planta</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Resumen global tras el cruce de las bases de Tiempos de Entrega y Paradas de Máquina.</div>", unsafe_allow_html=True)
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.metric("Órdenes Analizadas", "14,933", "100% Match Bases")
-    with col2: st.metric("Cumplimiento Global (≤17d)", "78.2%", "11,684 Órdenes")
-    with col3: st.metric("Tasa de Reproceso", "12.49%", "-50.8% OTD", delta_color="inverse")
-    with col4: st.metric("Impacto Acabados", "8,450 h", "Traducidas a días", delta_color="off")
-
-    st.markdown("---")
-    col_left, col_right = st.columns(2)
-
-    with col_left:
-        st.subheader("Cruce Reprocesos: Lead Time vs. Minutos Parada")
-        df_rep = pd.DataFrame({
-            "Condición": ["Sin Reproceso", "Con Reproceso"],
-            "Lead Time (Días)": [9.85, 29.93],
-            "Minutos Parada Acumulados": [84.5, 312.4]
-        })
+if archivo_lead is not None and archivo_paradas is not None:
+    try:
+        # Leer los archivos
+        df_lead = pd.read_excel(archivo_lead) if archivo_lead.name.endswith('.xlsx') else pd.read_csv(archivo_lead)
+        df_paradas = pd.read_excel(archivo_paradas) if archivo_paradas.name.endswith('.xlsx') else pd.read_csv(archivo_paradas)
         
-        fig_rep = go.Figure()
-        fig_rep.add_trace(go.Bar(x=df_rep["Condición"], y=df_rep["Lead Time (Días)"], name="Lead Time (Días)", marker_color="#2563EB", yaxis="y1"))
-        fig_rep.add_trace(go.Scatter(x=df_rep["Condición"], y=df_rep["Minutos Parada Acumulados"], name="Minutos Parada/Orden", mode="lines+markers+text", text=[f"{v} min" for v in df_rep["Minutos Parada Acumulados"]], textposition="top center", line=dict(color="#D97706", width=3), yaxis="y2"))
+        # ==========================================
+        # 3. ETL Y CRUCE DE BASES (Requerimiento Principal)
+        # ==========================================
+        st.sidebar.success("Archivos cargados correctamente.")
         
-        fig_rep.update_layout(
-            title="Doble Impacto del Reproceso en Días y Tiempos Muertos",
-            yaxis=dict(title="Lead Time Promedio (Días)"),
-            yaxis2=dict(title="Minutos de Parada Promedio", overlaying="y", side="right"),
-            legend=dict(x=0.1, y=1.1, orientation="h")
-        )
-        st.plotly_chart(fig_rep, use_container_width=True)
+        # Estandarizar nombres de columnas a minúsculas para evitar errores
+        df_lead.columns = df_lead.columns.str.lower()
+        df_paradas.columns = df_paradas.columns.str.lower()
 
-    with col_right:
-        st.subheader("Top 5 Referencias Más Críticas (Incumplen > 17 Días)")
-        df_refs = pd.DataFrame({
-            "Referencia (SKU)": ["REF-SILVERTEX", "REF-VALENCIA", "REF-MAGLIA", "REF-DIAMANTE", "REF-CARBONO"],
-            "Órdenes Retrasadas": [412, 385, 290, 154, 112],
-            "Promedio Días": [24.5, 22.1, 28.4, 21.0, 31.2],
-            "Máquina Frecuente": ["Máquina 79", "Máquina 78", "Máquina 12", "Máquina 79", "Máquina 3"]
-        })
-        st.dataframe(df_refs.style.highlight_max(subset=['Promedio Días'], color='#FEE2E2'), use_container_width=True)
+        # Agrupar base de paradas por ORDEN (Primary Key)
+        df_paradas_agrupado = df_paradas.groupby('orden').agg(
+            maquina_parada_real=('maquina', lambda x: ', '.join(x.astype(str).unique())),
+            causa_principal=('causa', lambda x: x.mode()[0] if not x.empty else 'Desconocida'),
+            minutos_totales=('minutos', 'sum')
+        ).reset_index()
 
-# ==========================================
-# MÓDULO 2: SIMULADOR PREDICTIVO EN TIEMPO REAL
-# ==========================================
-elif menu == "🧮 Simulador Predictivo en Tiempo Real":
-    st.markdown("<div class='main-header'>Simulador Predictivo Integrado</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Evalúe el impacto de las paradas generales y las paradas en acabados sobre el tiempo final de entrega en días.</div>", unsafe_allow_html=True)
+        # Aislar impacto de ACABADOS (minutos)
+        # Asume que hay una columna 'etapa' o 'maquina' que dice "acabados"
+        df_acabados = df_paradas[df_paradas.astype(str).apply(lambda x: x.str.contains('acabados', case=False, na=False)).any(axis=1)]
+        df_acabados_agrupado = df_acabados.groupby('orden')['minutos'].sum().reset_index()
+        df_acabados_agrupado.rename(columns={'minutos': 'minutos_acabados'}, inplace=True)
 
-    col_form, col_res = st.columns([1, 1])
-
-    with col_form:
-        st.subheader("📋 Parámetros de la Orden Cruzada")
-        metros = st.number_input("Metros a Fabricar ($X_1$):", min_value=100, max_value=100000, value=15000, step=500)
-        es_reproceso = st.selectbox("¿Es Orden Reprocesada? ($X_2$):", ["NO", "SI"], help="Impacto base severo en Lead Time.")
-        minutos_parada = st.number_input("Minutos Totales de Parada General ($X_3$):", min_value=0, max_value=5000, value=120, step=10)
-        minutos_acabados = st.number_input("Minutos de Parada Específicos en Máquinas de Acabados ($X_4$):", min_value=0, max_value=5000, value=60, step=10, help="Las paradas en acabados penalizan más fuerte el tiempo final.")
-        maquina = st.selectbox("Máquina Principal Asignada ($X_5$):", list(BETAS_MAQUINA.keys()))
-        btn_calcular = st.button("🚀 Calcular Predicción de Lead Time", use_container_width=True)
-
-    with col_res:
-        st.subheader("🎯 Resultado de la Predicción")
-        val_reproceso = 1 if es_reproceso == "SI" else 0
-        beta_maq_val = BETAS_MAQUINA[maquina]
-
-        y_pred = (
-            BETA_0 
-            + (BETA_REPROCESO * val_reproceso) 
-            + (BETA_MIN_PARADA * minutos_parada) 
-            + (BETA_MIN_ACABADOS * minutos_acabados) 
-            + (BETA_METROS * metros) 
-            + beta_maq_val
-        )
-
-        lim_inf, lim_sup = max(0, y_pred - MAE), y_pred + MAE
-
-        st.markdown(
-            f"""
-            <div class='metric-card'>
-                <h4 style='margin:0; color:#1E293B;'>Lead Time Predicho ($\hat{{Y}}$):</h4>
-                <h1 style='margin:0; color:#2563EB; font-size: 42px;'>{y_pred:.2f} Días</h1>
-                <p style='margin:0; color:#64748B;'>Rango de estimación confiable (±MAE {MAE}d): <b>{lim_inf:.2f} a {lim_sup:.2f} días</b></p>
-            </div>
-            """, unsafe_allow_html=True
-        )
-
-        st.write("")
-        if lim_sup <= UMBRAL_TARGET:
-            st.markdown(f"<div class='status-green'>✅ <b>RIESGO BAJO:</b> Estimación segura bajo los {UMBRAL_TARGET} días.</div>", unsafe_allow_html=True)
-        elif y_pred <= UMBRAL_TARGET < lim_sup:
-            st.markdown(f"<div class='status-yellow'>⚠️ <b>RIESGO MEDIO:</b> Valor central {y_pred:.2f}d cumple, pero la varianza puede generar retraso.</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='status-red'>🚨 <b>RIESGO ALTO:</b> Supera el umbral de {UMBRAL_TARGET} días. Evalúe traslado de máquina o reducción de paradas en acabados.</div>", unsafe_allow_html=True)
+        # CRUCE FINAL: Lead Time + Paradas + Acabados
+        df_master = pd.merge(df_lead, df_paradas_agrupado, on='orden', how='inner')
+        df_master = pd.merge(df_master, df_acabados_agrupado, on='orden', how='left').fillna({'minutos_acabados': 0})
         
-        st.write("")
-        st.markdown("##### Desglose de Contribución de Variables a la Ecuación:")
-        df_breakdown = pd.DataFrame({
-            "Componente": ["Intercepto", "Efecto Reproceso", "Efecto Paradas (Gral)", "Efecto Paradas (Acabados)", "Volumen", f"Efecto {maquina}"],
-            "Aporte Directo en Días": [BETA_0, BETA_REPROCESO * val_reproceso, BETA_MIN_PARADA * minutos_parada, BETA_MIN_ACABADOS * minutos_acabados, BETA_METROS * metros, beta_maq_val]
-        })
-        st.dataframe(df_breakdown, use_container_width=True)
+        # Transformaciones de negocio
+        df_master['cumple_17_dias'] = np.where(df_master['lead_time_dias'] <= 17, 'Cumple (<=17)', 'Incumple (>17)')
+        df_master['impacto_acabados_dias'] = df_master['minutos_acabados'] / 1440 # Traducción de Minutos a Días
 
-# ==========================================
-# MÓDULO 3: CUELLOS DE BOTELLA Y CAUSAS
-# ==========================================
-elif menu == "🔍 Cruce Bases: Cuellos de Botella y Referencias":
-    st.markdown("<div class='main-header'>Diagnóstico: Lead Time vs. Paradas</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Identificación de causas de inactividad de las máquinas correlacionadas directamente con órdenes que superaron los 17 días.</div>", unsafe_allow_html=True)
+        # ==========================================
+        # 4. VISUALIZACIONES DEL CRUCE
+        # ==========================================
+        tabs = st.tabs(["📊 Análisis Cruzado", "⚠️ Cuellos de Botella", "🧮 Modelo Predictivo"])
 
-    col_a, col_b = st.columns(2)
+        with tabs[0]: # ANÁLISIS CRUZADO
+            st.subheader("1. Referencias: Cumplimiento vs Incumplimiento (>17 días)")
+            df_refs = df_master.groupby(['referencia', 'cumple_17_dias']).size().reset_index(name='cantidad')
+            fig_refs = px.bar(df_refs, x='referencia', y='cantidad', color='cumple_17_dias', barmode='group',
+                              color_discrete_map={'Cumple (<=17)': '#10B981', 'Incumple (>17)': '#EF4444'},
+                              title="Volumen de Referencias según Meta de Entrega")
+            st.plotly_chart(fig_refs, use_container_width=True)
 
-    with col_a:
-        st.subheader("Top Causas de Parada en Órdenes > 17 Días")
-        df_causas = pd.DataFrame({
-            "Causa de Parada": ["CUADRE DE BRILLO", "CUADRE DE TONO", "CAMBIO DE NUBE", "ASEO DE BATERIAS", "MALA APROBACION"],
-            "Minutos Acumulados": [245800, 198500, 95400, 88200, 75600]
-        })
-        fig_causas = px.bar(df_causas.sort_values(by="Minutos Acumulados"), x="Minutos Acumulados", y="Causa de Parada", orientation="h", text="Minutos Acumulados", color="Minutos Acumulados", color_continuous_scale="Purples")
-        fig_causas.update_traces(texttemplate="%{text:,} min", textposition="outside")
-        st.plotly_chart(fig_causas, use_container_width=True)
+            st.subheader("2. Impacto de Reprocesos entre ambas bases")
+            df_rep = df_master.groupby('reproceso').agg(
+                promedio_dias=('lead_time_dias', 'mean'),
+                promedio_minutos=('minutos_totales', 'mean')
+            ).reset_index()
+            
+            fig_rep = go.Figure()
+            fig_rep.add_trace(go.Bar(x=df_rep['reproceso'].astype(str), y=df_rep['promedio_dias'], name='Lead Time (Días)', marker_color='#3B82F6', yaxis='y1'))
+            fig_rep.add_trace(go.Scatter(x=df_rep['reproceso'].astype(str), y=df_rep['promedio_minutos'], name='Paradas (Minutos)', mode='lines+markers', line=dict(color='#F59E0B', width=3), yaxis='y2'))
+            fig_rep.update_layout(title="Días de Retraso (Lead Time) vs Tiempos Muertos (Paradas)",
+                                  yaxis=dict(title="Días"), yaxis2=dict(title="Minutos", overlaying='y', side='right'))
+            st.plotly_chart(fig_rep, use_container_width=True)
 
-    with col_b:
-        st.subheader("El Efecto de las Máquinas de Acabados")
-        st.markdown(
-            """
-            <div class='metric-card'>
-                <h4>⚙️ Traducción: Minutos a Días</h4>
-                <p>El cruce de bases revela que las interrupciones en la <b>etapa de acabados</b> son las más perjudiciales para la entrega final. Por la ecuación lineal, <b>cada 100 minutos de parada en acabados agregan +1.25 días completos</b> al Lead Time, evidenciando un cuello de botella logístico en la parte final del flujo de valor.</p>
-            </div>
-            <br>
-            <div class='metric-card'>
-                <h4>🚨 Las Máquinas Críticas (78 y 79)</h4>
-                <p>Al cruzar el primary key de la orden, descubrimos que las Máquinas 78 y 79 no solo tienen más minutos de parada por "Cuadre de tono", sino que añaden un castigo algorítmico base de <b>~6.9 días</b> al tiempo total. Concentran el 62% de las referencias retrasadas.</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
+        with tabs[1]: # CUELLOS DE BOTELLA
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("3. Causas de Parada Más Representativas")
+                # Filtrar solo las que incumplen
+                df_incumplen = df_master[df_master['cumple_17_dias'] == 'Incumple (>17)']
+                df_causas = df_incumplen.groupby('causa_principal')['minutos_totales'].sum().reset_index().sort_values('minutos_totales', ascending=False).head(10)
+                fig_causas = px.bar(df_causas, x='minutos_totales', y='causa_principal', orientation='h', title="Minutos perdidos por causa (Órdenes > 17 días)")
+                st.plotly_chart(fig_causas, use_container_width=True)
 
-# ==========================================
-# MÓDULO 4: MÉTRICAS DEL MODELO
-# ==========================================
-elif menu == "📈 Evaluación y Métricas del Modelo":
-    st.markdown("<div class='main-header'>Desempeño del Algoritmo (Test Set)</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-header'>Métricas basadas en la predicción del cruce consolidado.</div>", unsafe_allow_html=True)
+            with col2:
+                st.subheader("4. Máquinas Lead Time vs Máquinas Parada")
+                st.dataframe(df_master[['orden', 'maquina_lead', 'maquina_parada_real', 'causa_principal']].head(10), use_container_width=True)
+                
+            st.info("💡 **Análisis de Acabados:** Se detecta que las máquinas de acabados registran su impacto en *minutos*, pero logísticamente afectan el Lead Time en *días completas*.")
 
-    m1, m2, m3, m4 = st.columns(4)
-    with m1: st.metric("R²", f"{R2:.3f}", "31.5% Explicado")
-    with m2: st.metric("MAE", f"{MAE:.2f} Días", delta_color="inverse")
-    with m3: st.metric("RMSE", f"{RMSE:.2f} Días", delta_color="inverse")
-    with m4: st.metric("Accuracy", f"{ACCURACY}%", "Clasificación Riesgo")
+        with tabs[2]: # MODELO PREDICTIVO
+            st.subheader("Motor Predictivo Entrenado con tus Datos")
+            
+            # Preparar datos para el modelo
+            df_modelo = df_master.dropna(subset=['minutos_totales', 'minutos_acabados', 'reproceso', 'lead_time_dias', 'referencia'])
+            df_modelo['es_reproceso'] = np.where(df_modelo['reproceso'].astype(str).str.upper() == 'SI', 1, 0)
+            
+            # Entrenar modelo
+            X = df_modelo[['minutos_totales', 'impacto_acabados_dias', 'es_reproceso']]
+            y = df_modelo['lead_time_dias']
+            
+            modelo = LinearRegression()
+            modelo.fit(X, y)
 
-    st.markdown("---")
-    st.markdown("### 📝 Ecuación Econométrica Cruzada")
-    st.latex(
-        r"\hat{Y} = 5.21 + 16.45(Reproceso) + 0.009(Min\_Parada) + 0.012(Min\_Acabados) - 0.0002(Metros) + \beta_{M\acute{a}quina}"
-    )
+            st.markdown("### Simulador de Nueva Órden")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                sel_ref = st.selectbox("Referencia a producir:", df_master['referencia'].unique())
+                sel_rep = st.selectbox("¿Tendrá Reproceso?:", ["NO", "SI"])
+                val_min_parada = st.number_input("Estimación de Parada General (Minutos):", min_value=0, value=120)
+                val_min_acabados = st.number_input("Estimación de Parada en Máquinas de Acabados (Minutos):", min_value=0, value=60)
+            
+            with col_b:
+                # Predicción
+                input_rep = 1 if sel_rep == "SI" else 0
+                input_acabados_dias = val_min_acabados / 1440
+                
+                prediccion = modelo.predict([[val_min_parada, input_acabados_dias, input_rep]])[0]
+                
+                st.markdown(f"#### Lead Time Proyectado: **{prediccion:.2f} Días**")
+                
+                if prediccion > 17:
+                    st.markdown(f"<div class='alerta-roja'>🚨 RIESGO ALTO: La orden de {sel_ref} superará los 17 días. La causa principal de este modelo recae en el impacto de acabados traducido a días y el estado de reproceso.</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='alerta-verde'>✅ RIESGO BAJO: La orden de {sel_ref} llegará a tiempo.</div>", unsafe_allow_html=True)
+
+    except Exception as e:
+        st.error(f"Error al procesar los archivos. Asegúrate de que las columnas tengan los nombres correctos: 'orden', 'referencia', 'reproceso', 'lead_time_dias', 'maquina', 'causa', 'minutos'. Detalle del error: {e}")
+
+else:
+    st.info("👈 Por favor, carga tus dos archivos Excel en el menú lateral para iniciar el cruce de bases y visualizar el modelo.")
