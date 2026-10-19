@@ -67,14 +67,15 @@ try:
 
     X, y, df_merged = cargar_y_preprocesar_datos()
 
+    # VARIABLES GLOBALES: Las sacamos de la función para que la Pestaña 3 las pueda ver sin error
+    categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
+    numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
+
     # ---------------------------------------------------------
     # 2. ENTRENAMIENTO DEL MODELO (MEMORIZADO PARA VELOCIDAD EXTREMA)
     # ---------------------------------------------------------
     @st.cache_resource
     def entrenar_modelo(X_train, y_train):
-        categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
-        numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
-
         preprocessor = ColumnTransformer(
             transformers=[
                 ('num', StandardScaler(), numeric_features),
