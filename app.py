@@ -31,7 +31,7 @@ st.markdown("""
 # ---------------------------------------------------------
 @st.cache_data
 def cargar_y_preprocesar_datos():
-    # Cargar Excel de Lead Time y Paradas con los nombres exactos
+    # Cargar Excel de Lead Time y Paradas
     df_lead = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')
     df_paradas = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
     
@@ -42,7 +42,7 @@ def cargar_y_preprocesar_datos():
     df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados'])
     df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
     
-    # Consolidar Paradas sumando los minutos por cada Orden
+    # Consolidar Paradas
     paradas_agrupadas = df_paradas.groupby('Orden')['Minutos'].sum().reset_index()
     paradas_agrupadas.rename(columns={'Minutos': 'Total_Minutos_Parada'}, inplace=True)
     
@@ -50,17 +50,16 @@ def cargar_y_preprocesar_datos():
     df_merged = pd.merge(df_lead, paradas_agrupadas, on='Orden', how='left')
     df_merged['Total_Minutos_Parada'] = df_merged['Total_Minutos_Parada'].fillna(0)
     
-    # Extraer Mes y Día de la semana
+    # Extraer Mes y Día
     df_merged['Fecha_DT'] = pd.to_datetime(df_merged['Fecha.Geneneración.'], errors='coerce')
     df_merged['Mes_Generacion'] = df_merged['Fecha_DT'].dt.month.fillna(0).astype(int).astype(str)
     df_merged['Dia_Semana'] = df_merged['Fecha_DT'].dt.day_name().fillna('DESCONOCIDO')
     
-    # Seleccionar variables para el modelo
+    # Seleccionar variables
     features = ['Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Total_Minutos_Parada', 'Mes_Generacion', 'Dia_Semana']
     X = df_merged[features].copy()
     y = df_merged['Tiempo total en dias']
     
-    # Estandarizar texto en mayúsculas
     for col in ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Dia_Semana']:
         X[col] = X[col].astype(str).str.strip().str.upper()
         
@@ -80,13 +79,12 @@ preprocessor = ColumnTransformer(
         ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
     ])
 
-# Crear Pipeline del Modelo
 model = Pipeline(steps=[
     ('preprocessor', preprocessor),
     ('regressor', RandomForestRegressor(n_estimators=150, max_depth=15, random_state=42, n_jobs=-1))
 ])
 
-# Entrenar el modelo con todos los datos disponibles
+# Entrenar el modelo
 model.fit(X, y)
 
 # ---------------------------------------------------------
@@ -101,7 +99,6 @@ with tab1:
     st.markdown("### 🕹️ Módulo de Inferencia Operativa")
     st.write("Ingrese los datos de la nueva orden. El algoritmo calculará el Lead Time y generará una recomendación automática.")
     
-    # Formulario de entrada
     col_in1, col_in2, col_in3 = st.columns(3)
     metros_in = col_in1.number_input("Metros a Fabricar", value=6000, step=500)
     maquina_in = col_in2.selectbox("Máquina Asignada", sorted(X['Maquina trabaajo'].unique()))
@@ -113,14 +110,12 @@ with tab1:
     dia_in = col_in6.selectbox("Día de la Semana", sorted(X['Dia_Semana'].unique()))
     
     if st.button("Evaluar Orden (Daily Huddle)", use_container_width=True):
-        # Crear DataFrame con los datos ingresados
         input_df = pd.DataFrame({
             'Metros a Fabri': [metros_in], 'Maquina trabaajo': [str(maquina_in)],
             'Linea /Acabados': [str(linea_in)], 'Reprocesada': [str(reproceso_in)],
             'Total_Minutos_Parada': [parada_in], 'Mes_Generacion': ["1"], 'Dia_Semana': [str(dia_in)]
         })
         
-        # Realizar la predicción
         pred_dias = model.predict(input_df)[0]
         
         st.markdown("---")
@@ -129,7 +124,6 @@ with tab1:
         col_res1, col_res2 = st.columns(2)
         col_res1.metric("Lead Time Proyectado", f"{pred_dias:.1f} Días")
         
-        # Lógica del Semáforo
         if pred_dias <= 17:
             col_res2.success("🟢 ESTADO: BAJO RIESGO (Cumple Meta <= 17)")
             st.info("**Acción Prescriptiva:** Aprobar producción en flujo estándar. No requiere intervención extraordinaria.")
@@ -146,56 +140,62 @@ with tab1:
             """)
 
 # =========================================================
-# PESTAÑA 2: IMPACTO FINANCIERO
-# =========================================================
-# =========================================================
-# PESTAÑA 2: IMPACTO FINANCIERO
+# PESTAÑA 2: IMPACTO FINANCIERO (SOLUCIÓN A PRUEBA DE ERRORES)
 # =========================================================
 with tab2:
     st.markdown("### 💸 Costeo Financiero: Impacto de las Paradas y Reprocesos")
     st.write("Cálculo estimado de lucro cesante y pérdidas basado en la parametrización financiera de la compañía.")
     
-    # El usuario ingresa el costo por minuto
     costo_minuto = st.number_input("Ingrese el Costo Operativo Estándar por Minuto (COP):", min_value=1000, value=8500, step=500)
     
     try:
-        # 1. Leer el archivo saltando las primeras 8 filas (la tabla empieza en la 9)
-        df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8) 
+        # 1. Leer el archivo completamente "en bruto" (sin decirle a Python qué fila es el encabezado)
+        df_raw = pd.read_excel('Costeo Reprocesos FL.xlsx', header=None)
         
-        # 2. Limpiar nombres de columnas (quitar espacios al inicio y final)
-        df_costos.columns = df_costos.columns.str.strip()
-        
-        # 3. Detectar dinámicamente cómo se llama la columna de Máquina (con o sin tilde)
-        col_maquina = 'Máquina' if 'Máquina' in df_costos.columns else 'Maquina'
-        col_minutos = 'Minutos Totales'
-        
-        # 4. Filtrar usando las columnas detectadas
-        df_costos = df_costos.dropna(subset=[col_maquina, col_minutos])
-        
-        # Opcional: Eliminar la fila de "TOTAL" para que no dañe la gráfica
-        df_costos = df_costos[~df_costos[col_maquina].astype(str).str.contains('TOTAL', na=False, case=False)] 
-        
-        # 5. Calcular la pérdida
-        df_costos['Pérdida Financiera Estimada ($)'] = df_costos[col_minutos] * costo_minuto
-        
-        # Mostrar KPIs Financieros
-        col_f1, col_f2 = st.columns(2)
-        total_minutos_perdidos = df_costos[col_minutos].sum()
-        total_dinero_perdido = total_minutos_perdidos * costo_minuto
-        
-        col_f1.metric("Total Minutos Perdidos (Histórico Acumulado)", f"{total_minutos_perdidos:,.0f} min")
-        col_f2.metric("Pérdida Económica Proyectada", f"${total_dinero_perdido:,.0f} COP")
-        
-        # Gráfica de Pérdidas
-        fig_finanzas = px.bar(
-            df_costos, x=col_maquina, y='Pérdida Financiera Estimada ($)', 
-            title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
-            color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
-        )
-        st.plotly_chart(fig_finanzas, use_container_width=True)
-        
+        # 2. Búsqueda Inteligente: Encontrar dinámicamente en qué fila están los "Minutos Totales"
+        fila_header = -1
+        for index, row in df_raw.iterrows():
+            if row.astype(str).str.contains('Minutos Totales', case=False, na=False).any():
+                fila_header = index
+                break
+                
+        if fila_header == -1:
+            st.error("No se encontró ninguna columna llamada 'Minutos Totales' en el archivo.")
+        else:
+            # 3. Extraer los datos correctos usando la fila encontrada
+            df_costos = df_raw.iloc[fila_header + 1:].copy() # Datos
+            df_costos.columns = df_raw.iloc[fila_header].astype(str).str.strip() # Nombres de columnas
+            
+            # 4. Detectar si la columna se llama "Maquina" o "Máquina"
+            col_maquina = 'Máquina' if 'Máquina' in df_costos.columns else 'Maquina'
+            col_minutos = 'Minutos Totales'
+            
+            # 5. Limpiar datos y convertir minutos a números
+            df_costos = df_costos.dropna(subset=[col_maquina, col_minutos])
+            df_costos = df_costos[~df_costos[col_maquina].astype(str).str.contains('TOTAL', na=False, case=False)]
+            df_costos[col_minutos] = pd.to_numeric(df_costos[col_minutos], errors='coerce').fillna(0)
+            
+            # 6. Calcular Finanzas
+            df_costos['Pérdida Financiera Estimada ($)'] = df_costos[col_minutos] * costo_minuto
+            
+            # KPIs
+            col_f1, col_f2 = st.columns(2)
+            total_minutos_perdidos = df_costos[col_minutos].sum()
+            total_dinero_perdido = total_minutos_perdidos * costo_minuto
+            
+            col_f1.metric("Total Minutos Perdidos (Histórico Acumulado)", f"{total_minutos_perdidos:,.0f} min")
+            col_f2.metric("Pérdida Económica Proyectada", f"${total_dinero_perdido:,.0f} COP")
+            
+            # Gráfica
+            fig_finanzas = px.bar(
+                df_costos, x=col_maquina, y='Pérdida Financiera Estimada ($)', 
+                title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
+                color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
+            )
+            st.plotly_chart(fig_finanzas, use_container_width=True)
+            
     except Exception as e:
-        st.error(f"Ocurrió un error leyendo el archivo de Costos: {e}. Las columnas detectadas en el archivo son: {df_costos.columns.tolist() if 'df_costos' in locals() else 'No se pudo leer el archivo'}")
+        st.error(f"Ocurrió un error inesperado al procesar el archivo: {e}")
 
 # =========================================================
 # PESTAÑA 3: KPIs Y MODELO
@@ -212,7 +212,6 @@ with tab3:
     st.markdown("#### ⚙️ Importancia de las Variables (Feature Importance)")
     st.write("Variables que mayor impacto generan en el Lead Time según el algoritmo Random Forest.")
     
-    # Extraer el Feature Importance del modelo entrenado
     cat_encoder = model.named_steps['preprocessor'].named_transformers_['cat']
     cat_names = cat_encoder.get_feature_names_out(categorical_features)
     all_feature_names = numeric_features + list(cat_names)
@@ -220,7 +219,6 @@ with tab3:
 
     df_imp = pd.DataFrame({'Variable_Codificada': all_feature_names, 'Importancia': importances})
 
-    # Mapear nombres técnicos a nombres de negocio
     def mapear_categoria(var):
         if var == 'Metros a Fabri': return 'Volumen a Fabricar (Metros)'
         elif var == 'Total_Minutos_Parada': return 'Minutos Acumulados de Parada'
@@ -234,7 +232,6 @@ with tab3:
     df_imp['Grupo_Factor'] = df_imp['Variable_Codificada'].apply(mapear_categoria)
     df_grouped_imp = df_imp.groupby('Grupo_Factor')['Importancia'].sum().reset_index().sort_values(by='Importancia', ascending=True)
 
-    # Gráfica de Importancia
     fig_imp = px.bar(
         df_grouped_imp, x='Importancia', y='Grupo_Factor', orientation='h',
         text=df_grouped_imp['Importancia'].apply(lambda x: f"{x:.1f}%"),
