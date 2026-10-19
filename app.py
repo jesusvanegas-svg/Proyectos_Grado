@@ -158,7 +158,7 @@ with tab2:
     try:
         # Cargar el Excel de costos (saltando las primeras 8 filas de resumen para agarrar la tabla de máquinas)
         df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8) 
-        df_costos = df_costos.dropna(subset=['Máquina', 'Minutos Totales'])
+        df_costos = df_costos.dropna(subset=['Maquina', 'Minutos Totales'])
         
         # Calcular pérdida financiera
         df_costos['Pérdida Financiera Estimada ($)'] = df_costos['Minutos Totales'] * costo_minuto
@@ -173,7 +173,7 @@ with tab2:
         
         # Gráfica de Pérdidas
         fig_finanzas = px.bar(
-            df_costos, x='Máquina', y='Pérdida Financiera Estimada ($)', 
+            df_costos, x='Maquina', y='Pérdida Financiera Estimada ($)', 
             title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
             color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
         )
