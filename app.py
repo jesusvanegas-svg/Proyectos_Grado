@@ -140,7 +140,7 @@ with tab1:
             """)
 
 # =========================================================
-# PESTAÑA 2: IMPACTO FINANCIERO (SOLUCIÓN A PRUEBA DE ERRORES)
+# PESTAÑA 2: IMPACTO FINANCIERO (SOLUCIÓN BASADA EN POSICIÓN)
 # =========================================================
 with tab2:
     st.markdown("### 💸 Costeo Financiero: Impacto de las Paradas y Reprocesos")
@@ -149,54 +149,52 @@ with tab2:
     costo_minuto = st.number_input("Ingrese el Costo Operativo Estándar por Minuto (COP):", min_value=1000, value=8500, step=500)
     
     try:
-        # 1. Leer el archivo completamente "en bruto" (sin decirle a Python qué fila es el encabezado)
-        df_raw = pd.read_excel('Costeo Reprocesos FL.xlsx', header=None)
+        # 1. Leer el archivo saltando las 8 primeras filas (donde está el resumen anual)
+        df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8)
         
-        # 2. Búsqueda Inteligente: Encontrar dinámicamente en qué fila están los "Minutos Totales"
-        fila_header = -1
-        for index, row in df_raw.iterrows():
-            if row.astype(str).str.contains('Minutos Totales', case=False, na=False).any():
-                fila_header = index
-                break
-                
-        if fila_header == -1:
-            st.error("No se encontró ninguna columna llamada 'Minutos Totales' en el archivo.")
-        else:
-            # 3. Extraer los datos correctos usando la fila encontrada
-            df_costos = df_raw.iloc[fila_header + 1:].copy() # Datos
-            df_costos.columns = df_raw.iloc[fila_header].astype(str).str.strip() # Nombres de columnas
-            
-            # 4. Detectar si la columna se llama "Maquina" o "Máquina"
-            col_maquina = 'Máquina' if 'Máquina' in df_costos.columns else 'Maquina'
-            col_minutos = 'Minutos Totales'
-            
-            # 5. Limpiar datos y convertir minutos a números
-            df_costos = df_costos.dropna(subset=[col_maquina, col_minutos])
-            df_costos = df_costos[~df_costos[col_maquina].astype(str).str.contains('TOTAL', na=False, case=False)]
-            df_costos[col_minutos] = pd.to_numeric(df_costos[col_minutos], errors='coerce').fillna(0)
-            
-            # 6. Calcular Finanzas
-            df_costos['Pérdida Financiera Estimada ($)'] = df_costos[col_minutos] * costo_minuto
-            
-            # KPIs
-            col_f1, col_f2 = st.columns(2)
-            total_minutos_perdidos = df_costos[col_minutos].sum()
-            total_dinero_perdido = total_minutos_perdidos * costo_minuto
-            
-            col_f1.metric("Total Minutos Perdidos (Histórico Acumulado)", f"{total_minutos_perdidos:,.0f} min")
-            col_f2.metric("Pérdida Económica Proyectada", f"${total_dinero_perdido:,.0f} COP")
-            
-            # Gráfica
-            fig_finanzas = px.bar(
-                df_costos, x=col_maquina, y='Pérdida Financiera Estimada ($)', 
-                title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
-                color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
-            )
-            st.plotly_chart(fig_finanzas, use_container_width=True)
+        # 2. Tomar las columnas por su POSICIÓN numérica, sin importar cómo se llamen.
+        # La columna 1 es 'Maquina' (índice 1 en Python)
+        # La columna 3 es 'Minutos Totales' (índice 3 en Python)
+        maquinas = df_costos.iloc[:, 1]
+        minutos = df_costos.iloc[:, 3]
+        
+        # 3. Crear un DataFrame limpio solo con esas dos columnas
+        df_limpio = pd.DataFrame({
+            'Maquina_ID': maquinas,
+            'Minutos_Perdidos': minutos
+        })
+        
+        # 4. Limpiar los datos: quitar filas vacías y eliminar la fila de 'TOTAL'
+        df_limpio = df_limpio.dropna()
+        df_limpio = df_limpio[~df_limpio['Maquina_ID'].astype(str).str.contains('TOTAL', case=False, na=False)]
+        
+        # 5. Asegurarnos de que los minutos sean números y la máquina sea texto
+        df_limpio['Minutos_Perdidos'] = pd.to_numeric(df_limpio['Minutos_Perdidos'], errors='coerce').fillna(0)
+        df_limpio['Maquina_ID'] = df_limpio['Maquina_ID'].astype(str)
+        
+        # 6. Calcular Finanzas
+        df_limpio['Pérdida Financiera Estimada ($)'] = df_limpio['Minutos_Perdidos'] * costo_minuto
+        
+        # Mostrar KPIs Financieros
+        col_f1, col_f2 = st.columns(2)
+        total_minutos_perdidos = df_limpio['Minutos_Perdidos'].sum()
+        total_dinero_perdido = total_minutos_perdidos * costo_minuto
+        
+        col_f1.metric("Total Minutos Perdidos (Histórico Acumulado)", f"{total_minutos_perdidos:,.0f} min")
+        col_f2.metric("Pérdida Económica Proyectada", f"${total_dinero_perdido:,.0f} COP")
+        
+        # Gráfica de Pérdidas
+        fig_finanzas = px.bar(
+            df_limpio, x='Maquina_ID', y='Pérdida Financiera Estimada ($)', 
+            title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
+            color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds',
+            labels={'Maquina_ID': 'Máquina de Producción'}
+        )
+        st.plotly_chart(fig_finanzas, use_container_width=True)
             
     except Exception as e:
         st.error(f"Ocurrió un error inesperado al procesar el archivo: {e}")
-
+        
 # =========================================================
 # PESTAÑA 3: KPIs Y MODELO
 # =========================================================
