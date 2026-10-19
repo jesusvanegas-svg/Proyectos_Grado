@@ -39,7 +39,8 @@ def cargar_y_preprocesar_datos():
     df_lead.columns = df_lead.columns.str.strip()
     df_paradas.columns = df_paradas.columns.str.strip()
     
-    df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados'])
+    # OJO AQUÍ: Asegurarnos de que no haya vacíos en la nueva variable 'Referencia Color'
+    df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Referencia Color'])
     df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
     
     # Consolidar Paradas
@@ -50,17 +51,17 @@ def cargar_y_preprocesar_datos():
     df_merged = pd.merge(df_lead, paradas_agrupadas, on='Orden', how='left')
     df_merged['Total_Minutos_Parada'] = df_merged['Total_Minutos_Parada'].fillna(0)
     
-    # Extraer Mes y Día
+    # Extraer Mes 
     df_merged['Fecha_DT'] = pd.to_datetime(df_merged['Fecha.Geneneración.'], errors='coerce')
     df_merged['Mes_Generacion'] = df_merged['Fecha_DT'].dt.month.fillna(0).astype(int).astype(str)
-    df_merged['Dia_Semana'] = df_merged['Fecha_DT'].dt.day_name().fillna('DESCONOCIDO')
     
-    # Seleccionar variables
-    features = ['Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Total_Minutos_Parada', 'Mes_Generacion', 'Dia_Semana']
+    # NUEVAS VARIABLES: Quitamos 'Dia_Semana' y ponemos 'Referencia Color'
+    features = ['Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Total_Minutos_Parada', 'Mes_Generacion', 'Referencia Color']
     X = df_merged[features].copy()
     y = df_merged['Tiempo total en dias']
     
-    for col in ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Dia_Semana']:
+    # Poner todo en mayúsculas para evitar errores tipográficos
+    for col in ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']:
         X[col] = X[col].astype(str).str.strip().str.upper()
         
     return X, y, df_merged
@@ -70,7 +71,8 @@ X, y, df_merged = cargar_y_preprocesar_datos()
 # ---------------------------------------------------------
 # CONSTRUCCIÓN DEL MODELO (RANDOM FOREST)
 # ---------------------------------------------------------
-categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Dia_Semana']
+# Actualizamos el modelo para que entienda que ahora debe evaluar la Referencia
+categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
 numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
 
 preprocessor = ColumnTransformer(
@@ -84,7 +86,7 @@ model = Pipeline(steps=[
     ('regressor', RandomForestRegressor(n_estimators=150, max_depth=15, random_state=42, n_jobs=-1))
 ])
 
-# Entrenar el modelo
+# Entrenar el modelo con los nuevos datos
 model.fit(X, y)
 
 # ---------------------------------------------------------
@@ -107,13 +109,20 @@ with tab1:
     col_in4, col_in5, col_in6 = st.columns(3)
     reproceso_in = col_in4.selectbox("¿Riesgo de Reproceso?", ["NO", "SI"])
     parada_in = col_in5.number_input("Minutos de Parada Previstos", min_value=0, value=120)
-    dia_in = col_in6.selectbox("Día de la Semana", sorted(X['Dia_Semana'].unique()))
+    
+    # AQUI ESTÁ LA MAGIA: Quitamos el día y pusimos la Referencia
+    referencia_in = col_in6.selectbox("Referencia a Fabricar", sorted(X['Referencia Color'].unique()))
     
     if st.button("Evaluar Orden (Daily Huddle)", use_container_width=True):
+        # Crear el dataframe de entrada para el modelo asegurando que mandamos 'Referencia Color'
         input_df = pd.DataFrame({
-            'Metros a Fabri': [metros_in], 'Maquina trabaajo': [str(maquina_in)],
-            'Linea /Acabados': [str(linea_in)], 'Reprocesada': [str(reproceso_in)],
-            'Total_Minutos_Parada': [parada_in], 'Mes_Generacion': ["1"], 'Dia_Semana': [str(dia_in)]
+            'Metros a Fabri': [metros_in], 
+            'Maquina trabaajo': [str(maquina_in)],
+            'Linea /Acabados': [str(linea_in)], 
+            'Reprocesada': [str(reproceso_in)],
+            'Total_Minutos_Parada': [parada_in], 
+            'Mes_Generacion': ["1"], 
+            'Referencia Color': [str(referencia_in)]
         })
         
         pred_dias = model.predict(input_df)[0]
@@ -140,7 +149,7 @@ with tab1:
             """)
 
 # =========================================================
-# PESTAÑA 2: IMPACTO FINANCIERO (SOLUCIÓN BASADA EN POSICIÓN)
+# PESTAÑA 2: IMPACTO FINANCIERO (CÓDIGO POR POSICIÓN A PRUEBA DE FALLOS)
 # =========================================================
 with tab2:
     st.markdown("### 💸 Costeo Financiero: Impacto de las Paradas y Reprocesos")
@@ -149,12 +158,10 @@ with tab2:
     costo_minuto = st.number_input("Ingrese el Costo Operativo Estándar por Minuto (COP):", min_value=1000, value=8500, step=500)
     
     try:
-        # 1. Leer el archivo saltando las 8 primeras filas (donde está el resumen anual)
+        # 1. Leer el archivo saltando las 8 primeras filas
         df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8)
         
-        # 2. Tomar las columnas por su POSICIÓN numérica, sin importar cómo se llamen.
-        # La columna 1 es 'Maquina' (índice 1 en Python)
-        # La columna 3 es 'Minutos Totales' (índice 3 en Python)
+        # 2. Tomar las columnas por su POSICIÓN numérica, sin importar si tienen tildes o espacios
         maquinas = df_costos.iloc[:, 1]
         minutos = df_costos.iloc[:, 3]
         
@@ -164,11 +171,11 @@ with tab2:
             'Minutos_Perdidos': minutos
         })
         
-        # 4. Limpiar los datos: quitar filas vacías y eliminar la fila de 'TOTAL'
+        # 4. Limpiar los datos
         df_limpio = df_limpio.dropna()
         df_limpio = df_limpio[~df_limpio['Maquina_ID'].astype(str).str.contains('TOTAL', case=False, na=False)]
         
-        # 5. Asegurarnos de que los minutos sean números y la máquina sea texto
+        # 5. Asegurarnos de que los minutos sean números
         df_limpio['Minutos_Perdidos'] = pd.to_numeric(df_limpio['Minutos_Perdidos'], errors='coerce').fillna(0)
         df_limpio['Maquina_ID'] = df_limpio['Maquina_ID'].astype(str)
         
@@ -194,7 +201,7 @@ with tab2:
             
     except Exception as e:
         st.error(f"Ocurrió un error inesperado al procesar el archivo: {e}")
-        
+
 # =========================================================
 # PESTAÑA 3: KPIs Y MODELO
 # =========================================================
@@ -217,6 +224,7 @@ with tab3:
 
     df_imp = pd.DataFrame({'Variable_Codificada': all_feature_names, 'Importancia': importances})
 
+    # Actualizamos los nombres para que la gráfica de barras del jurado muestre "Referencia"
     def mapear_categoria(var):
         if var == 'Metros a Fabri': return 'Volumen a Fabricar (Metros)'
         elif var == 'Total_Minutos_Parada': return 'Minutos Acumulados de Parada'
@@ -224,7 +232,7 @@ with tab3:
         elif 'Maquina' in var: return 'Máquina de Trabajo'
         elif 'Linea' in var: return 'Línea de Acabado'
         elif 'Mes' in var: return 'Estacionalidad (Mes)'
-        elif 'Dia' in var: return 'Día de la Semana'
+        elif 'Referencia' in var: return 'Referencia del Producto'
         return 'Otros'
 
     df_imp['Grupo_Factor'] = df_imp['Variable_Codificada'].apply(mapear_categoria)
