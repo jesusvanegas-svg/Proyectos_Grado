@@ -148,6 +148,9 @@ with tab1:
 # =========================================================
 # PESTAÑA 2: IMPACTO FINANCIERO
 # =========================================================
+# =========================================================
+# PESTAÑA 2: IMPACTO FINANCIERO
+# =========================================================
 with tab2:
     st.markdown("### 💸 Costeo Financiero: Impacto de las Paradas y Reprocesos")
     st.write("Cálculo estimado de lucro cesante y pérdidas basado en la parametrización financiera de la compañía.")
@@ -159,18 +162,25 @@ with tab2:
         # 1. Leer el archivo saltando las primeras 8 filas (la tabla empieza en la 9)
         df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8) 
         
-        # 2. Filtrar asegurándonos de usar los nombres exactos que tiene tu Excel en esa fila
-        df_costos = df_costos.dropna(subset=['Maquina', 'Minutos Totales'])
+        # 2. Limpiar nombres de columnas (quitar espacios al inicio y final)
+        df_costos.columns = df_costos.columns.str.strip()
+        
+        # 3. Detectar dinámicamente cómo se llama la columna de Máquina (con o sin tilde)
+        col_maquina = 'Máquina' if 'Máquina' in df_costos.columns else 'Maquina'
+        col_minutos = 'Minutos Totales'
+        
+        # 4. Filtrar usando las columnas detectadas
+        df_costos = df_costos.dropna(subset=[col_maquina, col_minutos])
         
         # Opcional: Eliminar la fila de "TOTAL" para que no dañe la gráfica
-        df_costos = df_costos[df_costos['Maquina'] != 'TOTAL '] 
+        df_costos = df_costos[~df_costos[col_maquina].astype(str).str.contains('TOTAL', na=False, case=False)] 
         
-        # 3. Calcular la pérdida
-        df_costos['Pérdida Financiera Estimada ($)'] = df_costos['Minutos Totales'] * costo_minuto
+        # 5. Calcular la pérdida
+        df_costos['Pérdida Financiera Estimada ($)'] = df_costos[col_minutos] * costo_minuto
         
         # Mostrar KPIs Financieros
         col_f1, col_f2 = st.columns(2)
-        total_minutos_perdidos = df_costos['Minutos Totales'].sum()
+        total_minutos_perdidos = df_costos[col_minutos].sum()
         total_dinero_perdido = total_minutos_perdidos * costo_minuto
         
         col_f1.metric("Total Minutos Perdidos (Histórico Acumulado)", f"{total_minutos_perdidos:,.0f} min")
@@ -178,14 +188,14 @@ with tab2:
         
         # Gráfica de Pérdidas
         fig_finanzas = px.bar(
-            df_costos, x='Maquina', y='Pérdida Financiera Estimada ($)', 
+            df_costos, x=col_maquina, y='Pérdida Financiera Estimada ($)', 
             title="Lucro Cesante Estimado por Máquina (Debido a Paradas/Reprocesos)",
             color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
         )
         st.plotly_chart(fig_finanzas, use_container_width=True)
         
     except Exception as e:
-        st.error(f"Ocurrió un error leyendo el archivo de Costos: {e}")
+        st.error(f"Ocurrió un error leyendo el archivo de Costos: {e}. Las columnas detectadas en el archivo son: {df_costos.columns.tolist() if 'df_costos' in locals() else 'No se pudo leer el archivo'}")
 
 # =========================================================
 # PESTAÑA 3: KPIs Y MODELO
