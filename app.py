@@ -156,11 +156,16 @@ with tab2:
     costo_minuto = st.number_input("Ingrese el Costo Operativo Estándar por Minuto (COP):", min_value=1000, value=8500, step=500)
     
     try:
-        # Cargar el Excel de costos (saltando las primeras 8 filas de resumen para agarrar la tabla de máquinas)
+        # 1. Leer el archivo saltando las primeras 8 filas (la tabla empieza en la 9)
         df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8) 
+        
+        # 2. Filtrar asegurándonos de usar los nombres exactos que tiene tu Excel en esa fila
         df_costos = df_costos.dropna(subset=['Maquina', 'Minutos Totales'])
         
-        # Calcular pérdida financiera
+        # Opcional: Eliminar la fila de "TOTAL" para que no dañe la gráfica
+        df_costos = df_costos[df_costos['Maquina'] != 'TOTAL '] 
+        
+        # 3. Calcular la pérdida
         df_costos['Pérdida Financiera Estimada ($)'] = df_costos['Minutos Totales'] * costo_minuto
         
         # Mostrar KPIs Financieros
@@ -180,7 +185,7 @@ with tab2:
         st.plotly_chart(fig_finanzas, use_container_width=True)
         
     except Exception as e:
-        st.error(f"Ocurrió un error leyendo el archivo de Costos: Asegúrese de que el formato coincida. Error: {e}")
+        st.error(f"Ocurrió un error leyendo el archivo de Costos: {e}")
 
 # =========================================================
 # PESTAÑA 3: KPIs Y MODELO
