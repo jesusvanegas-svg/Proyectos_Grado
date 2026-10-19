@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-import traceback # Nos sirve para mostrar el error exacto si algo falla
+import traceback
 
 # ---------------------------------------------------------
 # CONFIGURACIÓN DE LA PÁGINA
@@ -18,7 +18,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ESCUDO ANTI-ERRORES: Todo va dentro de un bloque try-except
 try:
     st.title("🏭 Plataforma de Analítica Predictiva y Prescriptiva: Lead Time")
     st.markdown("""
@@ -29,49 +28,38 @@ try:
     """)
 
     # ---------------------------------------------------------
-    # CARGA Y PREPROCESAMIENTO DE DATOS
+    # 1. CARGA DE DATOS (MEMORIZADA PARA QUE SEA RÁPIDO)
     # ---------------------------------------------------------
     @st.cache_data
     def cargar_y_preprocesar_datos():
-        # Cargar Excel de Lead Time y Paradas
         df_lead = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')
         df_paradas = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
         
-        # Limpiar espacios en los nombres de las columnas
         df_lead.columns = df_lead.columns.str.strip()
         df_paradas.columns = df_paradas.columns.str.strip()
         
-        # LIMPIEZA INTELIGENTE PARA NO PERDER MÁQUINAS:
-        # En vez de borrar las filas vacías, las rellenamos con texto para que no se pierda la máquina
         df_lead['Referencia Color'] = df_lead['Referencia Color'].fillna('SIN REFERENCIA')
         df_lead['Linea /Acabados'] = df_lead['Linea /Acabados'].fillna('SIN LINEA')
         df_lead['Reprocesada'] = df_lead['Reprocesada'].fillna('NO')
         
-        # Asegurar que el número de máquina se vea completo (sin .0 al final)
-        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False)
-        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].fillna('SIN MAQUINA')
+        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False).fillna('SIN MAQUINA')
         
         df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri'])
         df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
         
-        # Consolidar Paradas
         paradas_agrupadas = df_paradas.groupby('Orden')['Minutos'].sum().reset_index()
         paradas_agrupadas.rename(columns={'Minutos': 'Total_Minutos_Parada'}, inplace=True)
         
-        # Unir bases de datos
         df_merged = pd.merge(df_lead, paradas_agrupadas, on='Orden', how='left')
         df_merged['Total_Minutos_Parada'] = df_merged['Total_Minutos_Parada'].fillna(0)
         
-        # Extraer Mes 
         df_merged['Fecha_DT'] = pd.to_datetime(df_merged['Fecha.Geneneración.'], errors='coerce')
         df_merged['Mes_Generacion'] = df_merged['Fecha_DT'].dt.month.fillna(0).astype(int).astype(str)
         
-        # Seleccionar variables
         features = ['Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Total_Minutos_Parada', 'Mes_Generacion', 'Referencia Color']
         X = df_merged[features].copy()
         y = df_merged['Tiempo total en dias']
         
-        # Estandarizar textos a mayúsculas
         for col in ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']:
             X[col] = X[col].astype(str).str.strip().str.upper()
             
@@ -80,27 +68,32 @@ try:
     X, y, df_merged = cargar_y_preprocesar_datos()
 
     # ---------------------------------------------------------
-    # CONSTRUCCIÓN DEL MODELO (RANDOM FOREST)
+    # 2. ENTRENAMIENTO DEL MODELO (MEMORIZADO PARA VELOCIDAD EXTREMA)
     # ---------------------------------------------------------
-    categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
-    numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
+    @st.cache_resource
+    def entrenar_modelo(X_train, y_train):
+        categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
+        numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
 
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', StandardScaler(), numeric_features),
-            ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', StandardScaler(), numeric_features),
+                ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
+            ])
+
+        modelo_entrenado = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('regressor', RandomForestRegressor(n_estimators=150, max_depth=15, random_state=42, n_jobs=-1))
         ])
 
-    model = Pipeline(steps=[
-        ('preprocessor', preprocessor),
-        ('regressor', RandomForestRegressor(n_estimators=150, max_depth=15, random_state=42, n_jobs=-1))
-    ])
+        modelo_entrenado.fit(X_train, y_train)
+        return modelo_entrenado
 
-    # Entrenar el modelo
-    model.fit(X, y)
+    # Aquí llama al modelo que ya está guardado en la memoria RAM
+    model = entrenar_modelo(X, y)
 
     # ---------------------------------------------------------
-    # PESTAÑAS (TABS) DEL DASHBOARD
+    # 3. PESTAÑAS (TABS) DEL DASHBOARD
     # ---------------------------------------------------------
     tab1, tab2, tab3 = st.tabs(["🔴 Semáforo Prescriptivo (Planta)", "💰 Análisis Financiero (Costeos)", "📊 KPIs y Modelo"])
 
@@ -113,11 +106,7 @@ try:
         
         col_in1, col_in2, col_in3 = st.columns(3)
         metros_in = col_in1.number_input("Metros a Fabricar", value=6000, step=500)
-        
-        # AQUÍ SE CARGAN LAS MÁQUINAS COMPLETAS
-        lista_maquinas = sorted(X['Maquina trabaajo'].unique())
-        maquina_in = col_in2.selectbox("Máquina Asignada", lista_maquinas)
-        
+        maquina_in = col_in2.selectbox("Máquina Asignada", sorted(X['Maquina trabaajo'].unique()))
         linea_in = col_in3.selectbox("Línea de Acabado", sorted(X['Linea /Acabados'].unique()))
         
         col_in4, col_in5, col_in6 = st.columns(3)
@@ -127,20 +116,16 @@ try:
         
         if st.button("Evaluar Orden (Daily Huddle)", use_container_width=True):
             input_df = pd.DataFrame({
-                'Metros a Fabri': [metros_in], 
-                'Maquina trabaajo': [str(maquina_in)],
-                'Linea /Acabados': [str(linea_in)], 
-                'Reprocesada': [str(reproceso_in)],
-                'Total_Minutos_Parada': [parada_in], 
-                'Mes_Generacion': ["1"], 
-                'Referencia Color': [str(referencia_in)]
+                'Metros a Fabri': [metros_in], 'Maquina trabaajo': [str(maquina_in)],
+                'Linea /Acabados': [str(linea_in)], 'Reprocesada': [str(reproceso_in)],
+                'Total_Minutos_Parada': [parada_in], 'Mes_Generacion': ["1"], 'Referencia Color': [str(referencia_in)]
             })
             
+            # Ahora la predicción es instantánea
             pred_dias = model.predict(input_df)[0]
             
             st.markdown("---")
             st.subheader("📋 Diagnóstico Operativo")
-            
             col_res1, col_res2 = st.columns(2)
             col_res1.metric("Lead Time Proyectado", f"{pred_dias:.1f} Días")
             
@@ -163,12 +148,8 @@ try:
         
         try:
             df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8)
-            maquinas = df_costos.iloc[:, 1]
-            minutos = df_costos.iloc[:, 3]
-            
-            df_limpio = pd.DataFrame({'Maquina_ID': maquinas, 'Minutos_Perdidos': minutos}).dropna()
+            df_limpio = pd.DataFrame({'Maquina_ID': df_costos.iloc[:, 1], 'Minutos_Perdidos': df_costos.iloc[:, 3]}).dropna()
             df_limpio = df_limpio[~df_limpio['Maquina_ID'].astype(str).str.contains('TOTAL', case=False, na=False)]
-            
             df_limpio['Minutos_Perdidos'] = pd.to_numeric(df_limpio['Minutos_Perdidos'], errors='coerce').fillna(0)
             df_limpio['Maquina_ID'] = df_limpio['Maquina_ID'].astype(str)
             df_limpio['Pérdida Financiera Estimada ($)'] = df_limpio['Minutos_Perdidos'] * costo_minuto
@@ -225,7 +206,6 @@ try:
         fig_imp.update_traces(textposition='outside')
         st.plotly_chart(fig_imp, use_container_width=True)
 
-# SI ALGO FALLA EN CUALQUIER PARTE, SE MUESTRA ESTE MENSAJE EN LUGAR DE LA CARITA TRISTE
 except Exception as e:
     st.error("🚨 ¡Ups! Ocurrió un error leyendo los archivos. Por favor toma captura de este cuadro rojo:")
     st.code(traceback.format_exc())
