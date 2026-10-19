@@ -38,12 +38,21 @@ try:
         df_lead.columns = df_lead.columns.str.strip()
         df_paradas.columns = df_paradas.columns.str.strip()
         
-        df_lead['Referencia Color'] = df_lead['Referencia Color'].fillna('SIN REFERENCIA')
-        df_lead['Linea /Acabados'] = df_lead['Linea /Acabados'].fillna('SIN LINEA')
-        df_lead['Reprocesada'] = df_lead['Reprocesada'].fillna('NO')
+        # 1. LIMPIAR TEXTOS Y MAYÚSCULAS DESDE EL PRINCIPIO
+        df_lead['Referencia Color'] = df_lead['Referencia Color'].fillna('SIN REFERENCIA').astype(str).str.upper().str.strip()
+        df_lead['Linea /Acabados'] = df_lead['Linea /Acabados'].fillna('SIN LINEA').astype(str).str.upper().str.strip()
+        df_lead['Reprocesada'] = df_lead['Reprocesada'].fillna('NO').astype(str).str.upper().str.strip()
         
-        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False).fillna('SIN MAQUINA')
+        # Limpiar Máquinas: quitar '.0', pasar a mayúsculas y cambiar los 'NAN' a 'SIN MAQUINA'
+        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False).str.upper().str.strip()
+        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].replace('NAN', 'SIN MAQUINA')
         
+        # 2. GUARDAR LISTAS COMPLETAS ANTES DE BORRAR FILAS (Para que el menú tenga TODAS las opciones de tu Excel)
+        lista_maquinas_full = sorted(df_lead['Maquina trabaajo'].unique())
+        lista_lineas_full = sorted(df_lead['Linea /Acabados'].unique())
+        lista_referencias_full = sorted(df_lead['Referencia Color'].unique())
+        
+        # 3. AHORA SÍ, BORRAMOS LAS FILAS INCOMPLETAS PARA ENTRENAR AL MODELO
         df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri'])
         df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
         
@@ -59,20 +68,17 @@ try:
         features = ['Metros a Fabri', 'Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Total_Minutos_Parada', 'Mes_Generacion', 'Referencia Color']
         X = df_merged[features].copy()
         y = df_merged['Tiempo total en dias']
-        
-        for col in ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']:
-            X[col] = X[col].astype(str).str.strip().str.upper()
             
-        return X, y, df_merged
+        return X, y, df_merged, lista_maquinas_full, lista_lineas_full, lista_referencias_full
 
-    X, y, df_merged = cargar_y_preprocesar_datos()
+    X, y, df_merged, list_maq, list_lin, list_ref = cargar_y_preprocesar_datos()
 
-    # VARIABLES GLOBALES: Las sacamos de la función para que la Pestaña 3 las pueda ver sin error
+    # VARIABLES GLOBALES
     categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
     numeric_features = ['Metros a Fabri', 'Total_Minutos_Parada']
 
     # ---------------------------------------------------------
-    # 2. ENTRENAMIENTO DEL MODELO (MEMORIZADO PARA VELOCIDAD EXTREMA)
+    # 2. ENTRENAMIENTO DEL MODELO
     # ---------------------------------------------------------
     @st.cache_resource
     def entrenar_modelo(X_train, y_train):
@@ -90,7 +96,6 @@ try:
         modelo_entrenado.fit(X_train, y_train)
         return modelo_entrenado
 
-    # Aquí llama al modelo que ya está guardado en la memoria RAM
     model = entrenar_modelo(X, y)
 
     # ---------------------------------------------------------
@@ -107,13 +112,17 @@ try:
         
         col_in1, col_in2, col_in3 = st.columns(3)
         metros_in = col_in1.number_input("Metros a Fabricar", value=6000, step=500)
-        maquina_in = col_in2.selectbox("Máquina Asignada", sorted(X['Maquina trabaajo'].unique()))
-        linea_in = col_in3.selectbox("Línea de Acabado", sorted(X['Linea /Acabados'].unique()))
+        
+        # AQUÍ USAMOS LA LISTA COMPLETA QUE SACAMOS AL PRINCIPIO
+        maquina_in = col_in2.selectbox("Máquina Asignada", list_maq)
+        linea_in = col_in3.selectbox("Línea de Acabado", list_lin)
         
         col_in4, col_in5, col_in6 = st.columns(3)
         reproceso_in = col_in4.selectbox("¿Riesgo de Reproceso?", ["NO", "SI"])
         parada_in = col_in5.number_input("Minutos de Parada Previstos", min_value=0, value=120)
-        referencia_in = col_in6.selectbox("Referencia a Fabricar", sorted(X['Referencia Color'].unique()))
+        
+        # AQUÍ USAMOS LA LISTA COMPLETA DE REFERENCIAS
+        referencia_in = col_in6.selectbox("Referencia a Fabricar", list_ref)
         
         if st.button("Evaluar Orden (Daily Huddle)", use_container_width=True):
             input_df = pd.DataFrame({
@@ -122,7 +131,6 @@ try:
                 'Total_Minutos_Parada': [parada_in], 'Mes_Generacion': ["1"], 'Referencia Color': [str(referencia_in)]
             })
             
-            # Ahora la predicción es instantánea
             pred_dias = model.predict(input_df)[0]
             
             st.markdown("---")
