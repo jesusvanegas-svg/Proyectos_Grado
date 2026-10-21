@@ -155,13 +155,21 @@ try:
                 col_res2.error("🔴 ESTADO: ALTO RIESGO DE INCUMPLIMIENTO")
                 st.error("**Acciones Recomendadas:** 1. Dividir orden. 2. Turno extra. 3. Priorizar inspección.")
                 
-            # --- ANÁLISIS DE CAUSAS (Columnas D, E, J) ---
+           # --- ANÁLISIS DE CAUSAS (Columnas D, E, J) ---
             st.markdown("---")
             st.markdown(f"#### 🔍 Análisis Histórico de Causas de Demora para: **{referencia_in}**")
             
             try:
+                # Cargar bases
                 df_causas = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
-                df_lead_temp = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')[['Orden', 'Referencia Color']].dropna()
+                df_lead_temp = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')
+                
+                # LA SOLUCIÓN: Limpiar espacios invisibles en los nombres de las columnas
+                df_causas.columns = df_causas.columns.str.strip()
+                df_lead_temp.columns = df_lead_temp.columns.str.strip()
+                
+                # Ahora sí filtramos y cruzamos
+                df_lead_temp = df_lead_temp[['Orden', 'Referencia Color']].dropna()
                 df_causas = pd.merge(df_causas, df_lead_temp, on='Orden', how='inner')
                 
                 historial_ref = df_causas[df_causas['Referencia Color'].astype(str).str.upper().str.strip() == str(referencia_in).upper().strip()]
@@ -198,7 +206,6 @@ try:
                             st.success("No hay reprocesos históricos asociados.")
             except Exception as e:
                 st.warning(f"No se pudo cargar el detalle de causas. Detalles técnicos: {e}")
-
     # =========================================================
     # PESTAÑA 2: IMPACTO FINANCIERO
     # =========================================================
