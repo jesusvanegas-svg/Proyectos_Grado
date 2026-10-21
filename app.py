@@ -234,8 +234,8 @@ try:
         except Exception as e:
             st.error(f"Error en Pestaña 2: {e}")
 
-    # =========================================================
-    # PESTAÑA 3: KPIs Y MODELO
+   # =========================================================
+    # PESTAÑA 3: KPIs, MODELO Y ANÁLISIS DE PARADAS
     # =========================================================
     with tab3:
         st.markdown("### 📈 Auditoría del Modelo y KPIs de Producción")
@@ -244,7 +244,7 @@ try:
         col_kpi1.metric("Total de Órdenes", f"{len(df_merged):,}")
         col_kpi2.metric("Tasa de Reprocesos", f"{(df_merged[df_merged['Reprocesada'] == 'SI'].shape[0] / len(df_merged)) * 100:.1f}%")
         
-        st.markdown("#### ⚙️ Importancia de las Variables")
+        st.markdown("#### ⚙️ Importancia de las Variables (Machine Learning)")
         cat_encoder = model.named_steps['preprocessor'].named_transformers_['cat']
         cat_names = cat_encoder.get_feature_names_out(categorical_features)
         all_feature_names = numeric_features + list(cat_names)
@@ -267,12 +267,61 @@ try:
         fig_imp = px.bar(
             df_grouped_imp, x='Importancia', y='Grupo_Factor', orientation='h',
             text=df_grouped_imp['Importancia'].apply(lambda x: f"{x:.1f}%"),
-            title="Impacto Porcentual por Factor", color='Importancia', color_continuous_scale='Teal'
+            title="Impacto Porcentual por Factor Operativo", color='Importancia', color_continuous_scale='Teal'
         )
         fig_imp.update_layout(xaxis_title="Impacto (%)", yaxis_title="", showlegend=False)
         fig_imp.update_traces(textposition='outside')
         st.plotly_chart(fig_imp, use_container_width=True)
 
-except Exception as e:
-    st.error("🚨 ¡Ups! Ocurrió un error en el código. Detalles:")
-    st.code(traceback.format_exc())
+        # =====================================================
+        # NUEVO: ANÁLISIS DE REFERENCIAS Y TOP 10 DE PARADAS
+        # =====================================================
+        st.markdown("---")
+        st.markdown("### 🛑 Análisis de Referencias y Causas Críticas de Parada")
+        st.write("Identificación de los productos y fallas técnicas que generan el mayor 'Lucro Cesante' en tiempo.")
+        
+        col_graf1, col_graf2 = st.columns(2)
+        
+        with col_graf1:
+            # Gráfico 1: Top 10 Referencias con más minutos acumulados
+            df_ref_paradas = df_merged.groupby('Referencia Color')['Total_Minutos_Parada'].sum().reset_index()
+            df_ref_paradas = df_ref_paradas[df_ref_paradas['Referencia Color'] != 'SIN REFERENCIA']
+            df_ref_paradas = df_ref_paradas.sort_values(by='Total_Minutos_Parada', ascending=False).head(10)
+            
+            fig_ref = px.bar(
+                df_ref_paradas, x='Total_Minutos_Parada', y='Referencia Color', orientation='h',
+                title="Top 10 Referencias con Mayor Tiempo Perdido",
+                color='Total_Minutos_Parada', color_continuous_scale='Reds',
+                labels={'Total_Minutos_Parada': 'Minutos Totales', 'Referencia Color': ''}
+            )
+            fig_ref.update_layout(yaxis={'categoryorder':'total ascending'})
+            st.plotly_chart(fig_ref, use_container_width=True)
+
+        with col_graf2:
+            # Gráfico 2: Top 10 Causas Exactas de Parada
+            try:
+                df_causas_tab3 = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
+                df_causas_tab3.columns = df_causas_tab3.columns.str.strip()
+                
+                # Extraer Causa (Col E, índice 4) y Detalle (Col J, índice 9)
+                causas_e = df_causas_tab3.iloc[:, 4].fillna('Sin Causa').astype(str)
+                detalles_j = df_causas_tab3.iloc[:, 9].fillna('Sin Detalle').astype(str)
+                
+                df_causas_tab3['Causa_Completa'] = causas_e + " - " + detalles_j
+                df_causas_tab3['Minutos'] = pd.to_numeric(df_causas_tab3['Minutos'], errors='coerce').fillna(0)
+                
+                # Agrupar y sacar el Top 10
+                df_top_causas = df_causas_tab3.groupby('Causa_Completa')['Minutos'].sum().reset_index()
+                df_top_causas = df_top_causas.sort_values(by='Minutos', ascending=False).head(10)
+                
+                fig_causas = px.bar(
+                    df_top_causas, x='Minutos', y='Causa_Completa', orientation='h',
+                    title="Top 10 Causas de Parada Históricas (Minutos)",
+                    color='Minutos', color_continuous_scale='Oranges',
+                    labels={'Minutos': 'Minutos Totales Perdidos', 'Causa_Completa': ''}
+                )
+                fig_causas.update_layout(yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_causas, use_container_width=True)
+                
+            except Exception as e:
+                st.warning(f"No se pudo cargar el Top 10 de Causas Técnicas. Detalles: {e}")
