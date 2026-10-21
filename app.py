@@ -279,7 +279,7 @@ try:
         # =====================================================
         st.markdown("---")
         st.markdown("### 🛑 Análisis de Referencias y Causas Críticas de Parada")
-        st.write("Identificación de los productos y fallas técnicas que generan el mayor 'Lucro Cesante' en tiempo.")
+        st.write("Identificación de los productos y fallas técnicas que generan la mayor pérdida de capacidad instalada.")
         
         col_graf1, col_graf2 = st.columns(2)
         
@@ -304,7 +304,7 @@ try:
                 df_causas_tab3 = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
                 df_causas_tab3.columns = df_causas_tab3.columns.str.strip()
                 
-                # Extraer Causa (Col E, índice 4) y Detalle (Col J, índice 9)
+                # Extraer Causa y Detalle
                 causas_e = df_causas_tab3.iloc[:, 4].fillna('Sin Causa').astype(str)
                 detalles_j = df_causas_tab3.iloc[:, 9].fillna('Sin Detalle').astype(str)
                 
@@ -317,12 +317,28 @@ try:
                 
                 fig_causas = px.bar(
                     df_top_causas, x='Minutos', y='Causa_Completa', orientation='h',
-                    title="Top 10 Causas de Parada Históricas (Minutos)",
+                    title="Top 10 Causas de Parada Históricas",
                     color='Minutos', color_continuous_scale='Oranges',
                     labels={'Minutos': 'Minutos Totales Perdidos', 'Causa_Completa': ''}
                 )
                 fig_causas.update_layout(yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig_causas, use_container_width=True)
+                
+                # -----------------------------------------------------
+                # 🔥 NUEVO: CÁLCULO DE CAPACIDAD OCULTA (METROS RECUPERADOS)
+                # -----------------------------------------------------
+                st.markdown("#### 🏭 Cálculo de Capacidad Oculta (Metros Dejados de Fabricar)")
+                velocidad_promedio = st.number_input("Velocidad Promedio de Máquina (m/min):", min_value=1.0, value=22.0, step=1.0)
+                
+                # Sumamos los minutos solo de ese Top 10
+                total_minutos_top10 = df_top_causas['Minutos'].sum()
+                
+                # Fórmula: Minutos * Metros por Minuto
+                metros_adicionales = total_minutos_top10 * velocidad_promedio
+                # Si el profesor exige dividir por 60, descomenta la siguiente línea y borra la anterior:
+                # metros_adicionales = (total_minutos_top10 * velocidad_promedio) / 60
+                
+                st.success(f"🚀 **IMPACTO POTENCIAL:** Si la planta eliminara las fallas de este **Top 10** (recuperando **{total_minutos_top10:,.0f} minutos** muertos), a una velocidad de {velocidad_promedio} m/min, se podrían haber fabricado **{metros_adicionales:,.0f} metros adicionales** de producto.")
                 
             except Exception as e:
                 st.warning(f"No se pudo cargar el Top 10 de Causas Técnicas. Detalles: {e}")
