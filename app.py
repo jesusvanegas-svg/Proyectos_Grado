@@ -28,42 +28,58 @@ try:
     """)
 
     # ---------------------------------------------------------
-    # 1. CARGA DE DATOS (LISTAS COMPLETAS GARANTIZADAS DESDE COSTOS)
+    # 1. CARGA DE DATOS Y FUSIÓN DE NÚMEROS DE MÁQUINA
     # ---------------------------------------------------------
     @st.cache_data
     def cargar_y_preprocesar_datos():
+        # 1. Leer las bases de datos
         df_lead = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')
         df_paradas = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
         
         df_lead.columns = df_lead.columns.str.strip()
         df_paradas.columns = df_paradas.columns.str.strip()
         
-        # LIMPIEZA INICIAL
+        # Limpieza básica de textos
         df_lead['Referencia Color'] = df_lead['Referencia Color'].fillna('SIN REFERENCIA').astype(str).str.upper().str.strip()
         df_lead['Linea /Acabados'] = df_lead['Linea /Acabados'].fillna('SIN LINEA').astype(str).str.upper().str.strip()
         df_lead['Reprocesada'] = df_lead['Reprocesada'].fillna('NO').astype(str).str.upper().str.strip()
+        
+        # =====================================================================
+        # 🔥 MAGIA: UNIR LOS NÚMEROS DE MÁQUINA DE LAS 2 BASES DE DATOS
+        # =====================================================================
+        # Base 1: Extraer de LEAD TIME (Columna: Maquina trabaajo)
         df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False).str.upper().str.strip()
-        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].replace(['NAN', ''], 'SIN MAQUINA')
+        maquinas_bd1 = df_lead['Maquina trabaajo'].unique().tolist()
         
-        # ¡NUEVO! EXTRAER MÁQUINAS DEL ARCHIVO DE COSTOS PARA TENER LA LISTA ABSOLUTA
-        try:
-            df_costos_temp = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8)
-            # La columna 1 es la de los números de máquina
-            maquinas_costos = df_costos_temp.iloc[:, 1].dropna().astype(str).str.replace('.0', '', regex=False).str.upper().str.strip().tolist()
-        except:
-            maquinas_costos = []
+        # Base 2: Extraer de PARADAS (Columna: Maquina, según tu imagen)
+        if 'Maquina' in df_paradas.columns:
+            maquinas_bd2 = df_paradas['Maquina'].dropna().astype(str).str.replace('.0', '', regex=False).str.upper().str.strip().tolist()
+        else:
+            maquinas_bd2 = []
 
-        # COMBINAMOS AMBAS LISTAS PARA QUE NO FALTE NINGUNA MÁQUINA
-        maquinas_lead = df_lead['Maquina trabaajo'].unique().tolist()
-        lista_maquinas_full = sorted(list(set(maquinas_lead + maquinas_costos)))
+        # Juntamos los números de ambas bases y quitamos repetidos usando 'set'
+        todas_las_maquinas = set(maquinas_bd1 + maquinas_bd2) 
         
-        # Eliminamos basuras de la lista de máquinas como 'TOTAL' o 'NAN'
-        lista_maquinas_full = [m for m in lista_maquinas_full if m not in ['NAN', 'TOTAL', 'TOTAL ', 'SIN MAQUINA', '']]
+        # Filtramos palabras basura (vacíos o textos que no sirven)
+        palabras_basura = {'NAN', 'TOTAL', 'TOTAL ', 'SIN MAQUINA', 'NONE', ''}
+        lista_maquinas_unificada = list(todas_las_maquinas - palabras_basura)
         
-        lista_lineas_full = sorted(list(set(df_lead['Linea /Acabados'].unique())))
-        lista_referencias_full = sorted(list(set(df_lead['Referencia Color'].unique())))
+        # Función para ordenar los números de máquina correctamente (1, 2, 3... 12, 14, 53)
+        def orden_numerico(x):
+            try:
+                return int(x)
+            except:
+                return float('inf') # Si por alguna razón hay una letra, la manda al final
+
+        # Ordenar el listado final de números de máquina
+        lista_maquinas_unificada = sorted(lista_maquinas_unificada, key=lambda x: (orden_numerico(x), x))
+        # =====================================================================
         
-        # AHORA SÍ: Limpiamos datos vacíos para entrenar al modelo
+        # Sacar referencias y líneas completas
+        lista_lineas_full = sorted(list(set(df_lead['Linea /Acabados'].unique()) - {'NAN', ''}))
+        lista_referencias_full = sorted(list(set(df_lead['Referencia Color'].unique()) - {'NAN', ''}))
+        
+        # Limpieza final para entrenar el modelo (Borramos filas donde falten datos clave)
         df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri'])
         df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
         
@@ -80,9 +96,9 @@ try:
         X = df_merged[features].copy()
         y = df_merged['Tiempo total en dias']
             
-        return X, y, df_merged, lista_maquinas_full, lista_lineas_full, lista_referencias_full
+        return X, y, df_merged, lista_maquinas_unificada, lista_lineas_full, lista_referencias_full
 
-    X, y, df_merged, list_maq, list_lin, list_ref = cargar_y_preprocesar_datos()
+    X, y, df_merged, list_maq_unificada, list_lin, list_ref = cargar_y_preprocesar_datos()
 
     # VARIABLES GLOBALES
     categorical_features = ['Maquina trabaajo', 'Linea /Acabados', 'Reprocesada', 'Mes_Generacion', 'Referencia Color']
@@ -124,8 +140,8 @@ try:
         col_in1, col_in2, col_in3 = st.columns(3)
         metros_in = col_in1.number_input("Metros a Fabricar", value=6000, step=500)
         
-        # AQUÍ APARECERÁN TODOS LOS NÚMEROS DE MÁQUINA DE AMBOS EXCEL
-        maquina_in = col_in2.selectbox("Número de Máquina Asignada", list_maq)
+        # AQUÍ USAMOS EL LISTADO UNIFICADO Y ORDENADO DE NÚMEROS DE MÁQUINA
+        maquina_in = col_in2.selectbox("Número de Máquina Asignada", list_maq_unificada)
         linea_in = col_in3.selectbox("Línea de Acabado", list_lin)
         
         col_in4, col_in5, col_in6 = st.columns(3)
