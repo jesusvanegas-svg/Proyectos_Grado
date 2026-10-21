@@ -28,7 +28,7 @@ try:
     """)
 
     # ---------------------------------------------------------
-    # 1. CARGA DE DATOS (MEMORIZADA PARA QUE SEA RÁPIDO)
+    # 1. CARGA DE DATOS (LISTAS COMPLETAS GARANTIZADAS)
     # ---------------------------------------------------------
     @st.cache_data
     def cargar_y_preprocesar_datos():
@@ -38,21 +38,22 @@ try:
         df_lead.columns = df_lead.columns.str.strip()
         df_paradas.columns = df_paradas.columns.str.strip()
         
-        # 1. LIMPIAR TEXTOS Y MAYÚSCULAS DESDE EL PRINCIPIO
+        # LIMPIEZA INICIAL DE TEXTOS
         df_lead['Referencia Color'] = df_lead['Referencia Color'].fillna('SIN REFERENCIA').astype(str).str.upper().str.strip()
         df_lead['Linea /Acabados'] = df_lead['Linea /Acabados'].fillna('SIN LINEA').astype(str).str.upper().str.strip()
         df_lead['Reprocesada'] = df_lead['Reprocesada'].fillna('NO').astype(str).str.upper().str.strip()
         
-        # Limpiar Máquinas: quitar '.0', pasar a mayúsculas y cambiar los 'NAN' a 'SIN MAQUINA'
+        # EXTRACCIÓN DE TODOS LOS NÚMEROS DE MÁQUINA (Sin el .0)
         df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].astype(str).str.replace('.0', '', regex=False).str.upper().str.strip()
-        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].replace('NAN', 'SIN MAQUINA')
+        df_lead['Maquina trabaajo'] = df_lead['Maquina trabaajo'].replace(['NAN', ''], 'SIN MAQUINA')
         
-        # 2. GUARDAR LISTAS COMPLETAS ANTES DE BORRAR FILAS (Para que el menú tenga TODAS las opciones de tu Excel)
-        lista_maquinas_full = sorted(df_lead['Maquina trabaajo'].unique())
-        lista_lineas_full = sorted(df_lead['Linea /Acabados'].unique())
-        lista_referencias_full = sorted(df_lead['Referencia Color'].unique())
+        # ¡AQUÍ ESTÁ LA MAGIA! Guardamos TODOS los números de máquina, referencias y líneas ANTES de borrar datos
+        # Al usar set() nos aseguramos de traer todos los valores únicos exactos.
+        lista_maquinas_full = sorted(list(set(df_lead['Maquina trabaajo'].unique())))
+        lista_lineas_full = sorted(list(set(df_lead['Linea /Acabados'].unique())))
+        lista_referencias_full = sorted(list(set(df_lead['Referencia Color'].unique())))
         
-        # 3. AHORA SÍ, BORRAMOS LAS FILAS INCOMPLETAS PARA ENTRENAR AL MODELO
+        # AHORA SÍ: Limpiamos datos vacíos para que el algoritmo pueda aprender correctamente
         df_lead = df_lead.dropna(subset=['Orden', 'Tiempo total en dias', 'Metros a Fabri'])
         df_paradas = df_paradas.dropna(subset=['Orden', 'Minutos'])
         
@@ -85,6 +86,7 @@ try:
         preprocessor = ColumnTransformer(
             transformers=[
                 ('num', StandardScaler(), numeric_features),
+                # El handle_unknown='ignore' asegura que si seleccionas una máquina rara, no haya error.
                 ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
             ])
 
@@ -113,15 +115,13 @@ try:
         col_in1, col_in2, col_in3 = st.columns(3)
         metros_in = col_in1.number_input("Metros a Fabricar", value=6000, step=500)
         
-        # AQUÍ USAMOS LA LISTA COMPLETA QUE SACAMOS AL PRINCIPIO
-        maquina_in = col_in2.selectbox("Máquina Asignada", list_maq)
+        # ¡LISTA COMPLETA DE MÁQUINAS! Aquí aparecerán absolutamente todas.
+        maquina_in = col_in2.selectbox("Número de Máquina Asignada", list_maq)
         linea_in = col_in3.selectbox("Línea de Acabado", list_lin)
         
         col_in4, col_in5, col_in6 = st.columns(3)
         reproceso_in = col_in4.selectbox("¿Riesgo de Reproceso?", ["NO", "SI"])
         parada_in = col_in5.number_input("Minutos de Parada Previstos", min_value=0, value=120)
-        
-        # AQUÍ USAMOS LA LISTA COMPLETA DE REFERENCIAS
         referencia_in = col_in6.selectbox("Referencia a Fabricar", list_ref)
         
         if st.button("Evaluar Orden (Daily Huddle)", use_container_width=True):
@@ -197,7 +197,7 @@ try:
             if var == 'Metros a Fabri': return 'Volumen a Fabricar (Metros)'
             elif var == 'Total_Minutos_Parada': return 'Minutos de Parada'
             elif 'Reprocesada' in var: return 'Condición de Reproceso'
-            elif 'Maquina' in var: return 'Máquina Asignada'
+            elif 'Maquina' in var: return 'Número de Máquina'
             elif 'Linea' in var: return 'Línea de Acabado'
             elif 'Mes' in var: return 'Estacionalidad (Mes)'
             elif 'Referencia' in var: return 'Referencia del Producto'
