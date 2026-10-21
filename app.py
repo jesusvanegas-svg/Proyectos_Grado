@@ -155,7 +155,7 @@ try:
                 col_res2.error("🔴 ESTADO: ALTO RIESGO DE INCUMPLIMIENTO")
                 st.error("**Acciones Recomendadas:** 1. Dividir orden. 2. Turno extra. 3. Priorizar inspección.")
                 
-           # --- ANÁLISIS DE CAUSAS (Columnas D, E, J) ---
+            # --- ANÁLISIS DE CAUSAS (Columnas D, E, J) ---
             st.markdown("---")
             st.markdown(f"#### 🔍 Análisis Histórico de Causas de Demora para: **{referencia_in}**")
             
@@ -164,7 +164,7 @@ try:
                 df_causas = pd.read_excel('PARADAS DE MAQUINA 2024-2026.xlsx', header=1)
                 df_lead_temp = pd.read_excel('LEAD TIME DE PLANTA 2023-2026.xlsx')
                 
-                # LA SOLUCIÓN: Limpiar espacios invisibles en los nombres de las columnas
+                # Limpiar espacios invisibles en los nombres de las columnas
                 df_causas.columns = df_causas.columns.str.strip()
                 df_lead_temp.columns = df_lead_temp.columns.str.strip()
                 
@@ -206,6 +206,7 @@ try:
                             st.success("No hay reprocesos históricos asociados.")
             except Exception as e:
                 st.warning(f"No se pudo cargar el detalle de causas. Detalles técnicos: {e}")
+
     # =========================================================
     # PESTAÑA 2: IMPACTO FINANCIERO
     # =========================================================
@@ -234,8 +235,8 @@ try:
         except Exception as e:
             st.error(f"Error en Pestaña 2: {e}")
 
-   # =========================================================
-    # PESTAÑA 3: KPIs, MODELO Y ANÁLISIS DE PARADAS
+    # =========================================================
+    # PESTAÑA 3: KPIs Y MODELO
     # =========================================================
     with tab3:
         st.markdown("### 📈 Auditoría del Modelo y KPIs de Producción")
@@ -274,7 +275,7 @@ try:
         st.plotly_chart(fig_imp, use_container_width=True)
 
         # =====================================================
-        # NUEVO: ANÁLISIS DE REFERENCIAS Y TOP 10 DE PARADAS
+        # ANÁLISIS DE REFERENCIAS Y TOP 10 DE PARADAS
         # =====================================================
         st.markdown("---")
         st.markdown("### 🛑 Análisis de Referencias y Causas Críticas de Parada")
@@ -325,3 +326,7 @@ try:
                 
             except Exception as e:
                 st.warning(f"No se pudo cargar el Top 10 de Causas Técnicas. Detalles: {e}")
+
+except Exception as e:
+    st.error("🚨 ¡Ups! Ocurrió un error general en el código. Detalles:")
+    st.code(traceback.format_exc())
