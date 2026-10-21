@@ -208,34 +208,6 @@ try:
                 st.warning(f"No se pudo cargar el detalle de causas. Detalles técnicos: {e}")
 
     # =========================================================
-    # PESTAÑA 2: IMPACTO FINANCIERO
-    # =========================================================
-    with tab2:
-        st.markdown("### 💸 Costeo Financiero: Impacto de las Paradas y Reprocesos")
-        costo_minuto = st.number_input("Ingrese el Costo Operativo Estándar por Minuto (COP):", min_value=1000, value=8500, step=500)
-        
-        try:
-            df_costos = pd.read_excel('Costeo Reprocesos FL.xlsx', header=8)
-            df_limpio = pd.DataFrame({'Maquina_ID': df_costos.iloc[:, 1], 'Minutos_Perdidos': df_costos.iloc[:, 3]}).dropna()
-            df_limpio = df_limpio[~df_limpio['Maquina_ID'].astype(str).str.contains('TOTAL', case=False, na=False)]
-            df_limpio['Minutos_Perdidos'] = pd.to_numeric(df_limpio['Minutos_Perdidos'], errors='coerce').fillna(0)
-            df_limpio['Maquina_ID'] = df_limpio['Maquina_ID'].astype(str)
-            df_limpio['Pérdida Financiera Estimada ($)'] = df_limpio['Minutos_Perdidos'] * costo_minuto
-            
-            col_f1, col_f2 = st.columns(2)
-            col_f1.metric("Total Minutos Perdidos", f"{df_limpio['Minutos_Perdidos'].sum():,.0f} min")
-            col_f2.metric("Pérdida Económica Proyectada", f"${(df_limpio['Minutos_Perdidos'].sum() * costo_minuto):,.0f} COP")
-            
-            fig_finanzas = px.bar(
-                df_limpio, x='Maquina_ID', y='Pérdida Financiera Estimada ($)', 
-                title="Lucro Cesante Estimado por Máquina", color='Pérdida Financiera Estimada ($)', color_continuous_scale='Reds'
-            )
-            st.plotly_chart(fig_finanzas, use_container_width=True)
-                
-        except Exception as e:
-            st.error(f"Error en Pestaña 2: {e}")
-
-    # =========================================================
     # PESTAÑA 3: KPIs Y MODELO
     # =========================================================
     with tab3:
